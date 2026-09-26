@@ -1,0 +1,1412 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Typst Pad">
+<meta name="theme-color" content="#16242a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<title>Typst Pad</title>
+<style>
+:root {
+  --ink: #16242a;        /* editor surface */
+  --ink-2: #1e3037;      /* bars */
+  --ink-3: #2a4049;      /* raised controls */
+  --line: #33505a;
+  --text: #e4ece9;
+  --muted: #8ea5a6;
+  --teal: #3fb8b0;       /* Typst-like accent */
+  --teal-ink: #0d3b3a;
+  --amber: #e9b04d;
+  --red: #f06a5f;
+  --desk: #c9cfca;       /* behind the pages */
+  --paper: #ffffff;
+  --split: 50%;
+  --zoom: 1;
+  --code-size: 16px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) { :root { --desk: #3a4649; } }
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  position: fixed; inset: 0;
+  overscroll-behavior: none;
+  background: var(--ink); color: var(--text);
+  font: 15px/1.4 var(--ui);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+#app {
+  position: fixed; top: 0; left: 0; right: 0; height: 100%;
+  display: flex; flex-direction: column;
+  padding: var(--safe-t) var(--safe-r) 0 var(--safe-l);
+}
+
+/* ---------- top bar ---------- */
+.bar {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  height: 52px; padding: 0 10px;
+  background: var(--ink-2); border-bottom: 1px solid var(--line);
+  user-select: none; -webkit-user-select: none;
+}
+.filebtn {
+  display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 34vw;
+  height: 38px; padding: 0 12px; border: 0; border-radius: 9px; background: var(--ink-3);
+  font-weight: 600;
+}
+.filebtn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden;
+}
+.status span { overflow: hidden; text-overflow: ellipsis; }
+.status .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.status[data-state="ok"] .dot { background: var(--teal); }
+.status[data-state="busy"] .dot { background: var(--teal); animation: pulse 1s ease-in-out infinite; }
+.status[data-state="warn"] .dot { background: var(--amber); }
+.status[data-state="error"] .dot { background: var(--red); }
+.status[data-state="error"] { color: #f6b1ab; }
+@keyframes pulse { 50% { opacity: .25; } }
+.spacer { flex: 1; }
+.seg { display: flex; background: var(--ink); border-radius: 9px; padding: 3px; }
+.seg button { border: 0; background: none; height: 32px; padding: 0 12px; border-radius: 7px; color: var(--muted); font-size: 14px; }
+.seg button[aria-pressed="true"] { background: var(--ink-3); color: var(--text); }
+.iconbtn {
+  position: relative; flex: none; width: 40px; height: 38px; border: 0; border-radius: 9px;
+  background: none; display: grid; place-items: center;
+}
+.iconbtn:active, .filebtn:active { background: var(--ink-3); }
+.iconbtn svg, .filebtn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.iconbtn.spin svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.iconbtn.offline { color: var(--muted); }
+.badge[hidden] { display: none; }
+.badge {
+  position: absolute; top: 2px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 9px; background: var(--amber); color: #2b1d00; font-size: 11px; font-weight: 700;
+  display: grid; place-items: center;
+}
+
+/* ---------- workspace ---------- */
+#work { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--split) 12px 1fr; }
+#work[data-view="code"] { grid-template-columns: 1fr 0 0; }
+#work[data-view="pdf"] { grid-template-columns: 0 0 1fr; }
+#work[data-view="code"] #previewPane, #work[data-view="code"] #divider,
+#work[data-view="pdf"] #editorPane, #work[data-view="pdf"] #divider { display: none; }
+
+#editorPane { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--ink); }
+.editwrap { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.code {
+  margin: 0; border: 0; padding: 18px 20px 40vh 20px;
+  font: var(--code-size)/1.6 var(--mono); letter-spacing: 0;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; tab-size: 2;
+}
+#editor {
+  position: absolute; inset: 0; width: 100%; height: 100%; resize: none;
+  background: transparent; color: var(--text); caret-color: var(--teal);
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  outline: none;
+}
+.hl-on #editor { color: transparent; -webkit-text-fill-color: transparent; }
+#editor::selection { background: rgba(63,184,176,.35); }
+#hl { position: absolute; top: 0; left: 0; pointer-events: none; color: var(--text); display: none; }
+.hl-on #hl { display: block; }
+#hl .c { color: #6f8a8b; font-style: italic; }
+#hl .s { color: #a9d98a; }
+#hl .r { color: #e8c59a; }
+#hl .h { color: #ffffff; font-weight: 700; }
+#hl .m { color: #9ecbff; }
+#hl .k { color: #f39ac0; }
+#hl .f { color: #6fd6ce; }
+#hl .l { color: #e9b04d; }
+#hl .e { color: #8ea5a6; }
+.binary-note { position: absolute; inset: 0; display: none; place-content: center; text-align: center; color: var(--muted); padding: 24px; }
+.binary-note img { max-width: 80%; max-height: 50vh; margin: 16px auto 0; display: block; background: #fff; border-radius: 6px; }
+.is-binary .binary-note { display: grid; }
+.is-binary #editor, .is-binary #hl { display: none; }
+
+/* key strip for the on-screen keyboard */
+.keys {
+  flex: none; display: flex; gap: 6px; padding: 7px 10px; overflow-x: auto;
+  background: var(--ink-2); border-top: 1px solid var(--line);
+  scrollbar-width: none; overscroll-behavior: contain;
+  user-select: none; -webkit-user-select: none;
+}
+.keys::-webkit-scrollbar { display: none; }
+.keys button {
+  flex: none; min-width: 40px; height: 38px; padding: 0 10px; border: 0; border-radius: 7px;
+  background: var(--ink-3); box-shadow: 0 2px 0 #0e191d;
+  font: 17px var(--mono);
+}
+.keys button:active { transform: translateY(2px); box-shadow: none; }
+.keys .wide { font: 14px var(--ui); }
+
+/* diagnostics */
+.diag { flex: none; background: var(--ink-2); border-top: 1px solid var(--line); }
+.diag-head {
+  width: 100%; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px;
+  border: 0; background: none; text-align: left; color: var(--muted); font-size: 13px;
+}
+.diag-head strong { color: var(--text); font-weight: 600; }
+.diag[data-level="error"] .diag-head strong { color: var(--red); }
+.diag[data-level="warn"] .diag-head strong { color: var(--amber); }
+.diag ul { list-style: none; margin: 0; padding: 0 0 6px; max-height: 26vh; overflow-y: auto; overscroll-behavior: contain; }
+.diag[data-open="false"] ul { display: none; }
+.diag li button {
+  width: 100%; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 7px 14px;
+  border: 0; background: none; text-align: left; font-size: 13.5px;
+}
+.diag li button:active { background: var(--ink-3); }
+.diag .where { color: var(--muted); font: 12.5px var(--mono); padding-top: 1px; }
+.diag .sev-error .where { color: var(--red); }
+.diag .sev-warning .where { color: var(--amber); }
+.diag .hint { grid-column: 2; color: var(--muted); font-size: 12.5px; }
+
+/* divider */
+#divider { position: relative; background: var(--ink-2); touch-action: none; cursor: col-resize; }
+#divider::after {
+  content: ""; position: absolute; top: 50%; left: 50%; width: 4px; height: 44px; margin: -22px 0 0 -2px;
+  border-radius: 2px; background: var(--line);
+}
+#divider.drag::after { background: var(--teal); }
+
+/* preview */
+#previewPane { position: relative; min-width: 0; min-height: 0; background: var(--desk); }
+.preview {
+  position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  padding: 18px 18px calc(80px + var(--safe-b));
+}
+.preview .doc { width: calc(100% * var(--zoom)); margin: 0 auto; }
+.preview svg.typst-doc { display: block; width: 100%; height: auto; overflow: visible; }
+.preview .pg-bg { fill: #fff; stroke: rgba(20,35,40,.22); stroke-width: .6; }
+.preview .empty { max-width: 34ch; margin: 22vh auto 0; text-align: center; color: #4d5f62; font-size: 15px; }
+@media (prefers-color-scheme: dark) { .preview .empty { color: #b5c3c3; } }
+.preview.stale .doc { opacity: .55; transition: opacity .2s; }
+.zoom {
+  position: absolute; right: 14px; bottom: calc(14px + var(--safe-b)); display: flex; gap: 2px; padding: 3px;
+  border-radius: 11px; background: rgba(22,36,42,.88); color: var(--text);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.zoom button { height: 36px; min-width: 40px; padding: 0 10px; border: 0; border-radius: 8px; background: none; font-size: 15px; }
+.zoom button:active { background: var(--ink-3); }
+
+/* drawer */
+#drawer {
+  position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: min(360px, 86vw);
+  padding: calc(var(--safe-t) + 10px) 0 var(--safe-b) var(--safe-l);
+  background: var(--ink-2); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  transform: translateX(-102%); transition: transform .22s ease;
+}
+#drawer.open { transform: none; box-shadow: 12px 0 40px rgba(0,0,0,.35); }
+.scrim { position: fixed; inset: 0; z-index: 19; background: rgba(8,14,16,.45); display: none; }
+.scrim.show { display: block; }
+.drawer-head { display: flex; align-items: center; gap: 8px; padding: 4px 14px 12px; }
+.drawer-head h2 { flex: 1; margin: 0; font-size: 17px; }
+.drawer-actions { display: flex; gap: 8px; padding: 0 14px 12px; }
+.btn {
+  height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: var(--ink-3); font-size: 14.5px;
+}
+.btn.primary { background: var(--teal); color: var(--teal-ink); font-weight: 600; }
+.btn.danger { background: none; color: var(--red); padding: 0; }
+.btn:active { filter: brightness(1.15); }
+.filelist { flex: 1; overflow-y: auto; overscroll-behavior: contain; list-style: none; margin: 0; padding: 0 0 20px; }
+.filelist li { display: flex; align-items: center; }
+.filelist .open {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; height: 44px; padding: 0 14px;
+  border: 0; background: none; text-align: left;
+}
+.filelist li.current .open { background: var(--ink-3); }
+.filelist .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filelist .dir { color: var(--muted); }
+.filelist .tag { flex: none; font-size: 11.5px; color: var(--teal); }
+.filelist .tag.changed { color: var(--amber); }
+.filelist .more { width: 44px; height: 44px; border: 0; background: none; color: var(--muted); font-size: 20px; }
+
+/* dialogs */
+dialog {
+  width: min(560px, 94vw); max-height: 88vh; padding: 0; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--ink-2); color: var(--text); overflow: hidden;
+}
+dialog::backdrop { background: rgba(8,14,16,.55); }
+.dlg { display: flex; flex-direction: column; max-height: 88vh; }
+.dlg header { padding: 18px 20px 6px; }
+.dlg h2 { margin: 0; font-size: 19px; }
+.dlg .body { padding: 8px 20px 12px; overflow-y: auto; overscroll-behavior: contain; }
+.dlg footer { display: flex; align-items: center; gap: 10px; padding: 12px 20px 18px; border-top: 1px solid var(--line); }
+.dlg footer .spacer { flex: 1; }
+.field { display: block; margin: 12px 0; }
+.field > span { display: block; margin-bottom: 5px; font-size: 13.5px; color: var(--muted); }
+.field input[type=text], .field input[type=password], .field input[type=url], .field select {
+  width: 100%; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--ink); color: var(--text); font: 16px var(--ui);
+}
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.help { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.help a { color: var(--teal); }
+.check { display: flex; align-items: center; gap: 10px; margin: 14px 0; }
+.check input { width: 20px; height: 20px; accent-color: var(--teal); }
+.group-title { margin: 22px 0 2px; font-size: 13.5px; font-weight: 600; color: var(--text); }
+.conflict { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.conflict .fname { font: 600 15px var(--mono); margin-bottom: 8px; overflow-wrap: anywhere; }
+.conflict label { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14.5px; }
+.conflict input { accent-color: var(--teal); width: 18px; height: 18px; }
+.pdfinfo { margin: 6px 0 0; color: var(--muted); }
+
+/* toast */
+.toast {
+  position: fixed; z-index: 40; left: 50%; bottom: calc(22px + var(--safe-b)); transform: translate(-50%, 20px);
+  max-width: 90vw; padding: 11px 16px; border-radius: 11px; background: #0c171b; color: var(--text);
+  border: 1px solid var(--line); font-size: 14px; opacity: 0; pointer-events: none;
+  transition: opacity .18s, transform .18s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.error { border-color: var(--red); }
+
+@media (max-width: 700px) {
+  .seg button { padding: 0 9px; }
+  .status { display: none; }
+  .filebtn { max-width: 40vw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="bar">
+    <button id="filesBtn" class="filebtn" aria-label="Dateien">
+      <svg viewBox="0 0 24 24"><path d="M4 6h6l2 2h8v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>
+      <span id="curFile">main.typ</span>
+    </button>
+    <div id="status" class="status" role="status" data-state="busy"><i class="dot"></i><span id="statusText">Starte …</span></div>
+    <div class="spacer"></div>
+    <div class="seg" role="group" aria-label="Ansicht">
+      <button data-view="code" aria-pressed="false">Code</button>
+      <button data-view="split" aria-pressed="true">Beides</button>
+      <button data-view="pdf" aria-pressed="false">PDF</button>
+    </div>
+    <button id="syncBtn" class="iconbtn" aria-label="Mit GitHub synchronisieren" title="Mit GitHub synchronisieren">
+      <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14.3 4.9M4 12A8 8 0 0 1 18.3 7.1"/><path d="M18.5 3v4.3h-4.3M5.5 21v-4.3h4.3"/></svg>
+      <span id="syncBadge" class="badge" hidden>0</span>
+    </button>
+    <button id="pdfBtn" class="iconbtn" aria-label="PDF exportieren" title="PDF exportieren">
+      <svg viewBox="0 0 24 24"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
+    </button>
+    <button id="settingsBtn" class="iconbtn" aria-label="Einstellungen" title="Einstellungen">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </header>
+
+  <main id="work" data-view="split">
+    <section id="editorPane" aria-label="Code">
+      <div class="editwrap hl-on" id="editwrap">
+        <pre id="hl" class="code" aria-hidden="true"></pre>
+        <textarea id="editor" class="code scroll" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="soft" aria-label="Typst-Code"></textarea>
+        <div class="binary-note" id="binaryNote"></div>
+      </div>
+      <div class="keys scroll" id="keys" aria-label="Typst-Zeichen"></div>
+      <div class="diag" id="diag" data-open="false" data-level="ok">
+        <button class="diag-head" id="diagHead"><strong id="diagSummary">Noch nicht kompiliert</strong><span id="diagTime"></span></button>
+        <ul id="diagList" class="scroll"></ul>
+      </div>
+    </section>
+    <div id="divider" role="separator" aria-orientation="vertical" aria-label="Breite anpassen"></div>
+    <section id="previewPane" aria-label="Vorschau">
+      <div id="preview" class="preview scroll"><div class="empty">Typst wird vorbereitet. Beim allerersten Start werden etwa 20 MB geladen, danach läuft alles offline.</div></div>
+      <div class="zoom">
+        <button data-zoom="-" aria-label="Verkleinern">−</button>
+        <button data-zoom="fit">Breite</button>
+        <button data-zoom="+" aria-label="Vergrößern">+</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside id="drawer" aria-label="Dateien">
+  <div class="drawer-head">
+    <h2>Dateien</h2>
+    <button class="iconbtn" id="drawerClose" aria-label="Schließen"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <div class="drawer-actions">
+    <button class="btn" id="newFileBtn">Neue Datei</button>
+    <button class="btn" id="uploadBtn">Bild oder Datei hinzufügen</button>
+    <input type="file" id="uploadInput" multiple hidden>
+  </div>
+  <ul class="filelist scroll" id="fileList"></ul>
+</aside>
+
+<dialog id="settingsDlg">
+  <form method="dialog" class="dlg" id="settingsForm">
+    <header><h2>Einstellungen</h2></header>
+    <div class="body scroll">
+      <p class="group-title">GitHub</p>
+      <label class="field"><span>Repository (Adresse oder benutzer/repo)</span>
+        <input type="text" id="setRepo" placeholder="https://github.com/benutzer/repo" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      <div class="row2">
+        <label class="field"><span>Branch</span><input type="text" id="setBranch" placeholder="Standard-Branch" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+        <label class="field"><span>Ordner im Repo</span><input type="text" id="setDir" placeholder="ganzes Repo" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      </div>
+      <label class="field"><span>Zugangsschlüssel (Token)</span>
+        <input type="password" id="setToken" placeholder="github_pat_…" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"></label>
+      <p class="help">Erstelle einen <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Fine-grained Token</a>: nur dieses Repository auswählen, unter „Repository permissions“ bei „Contents“ „Read and write“ wählen. Der Schlüssel bleibt nur auf diesem Gerät.</p>
+
+      <p class="group-title">Dokument</p>
+      <label class="field"><span>Hauptdatei (wird kompiliert)</span><select id="setMain"></select></label>
+
+      <p class="group-title">Editor</p>
+      <label class="field"><span>Schriftgröße: <b id="sizeVal">16</b> px</span><input type="range" id="setSize" min="13" max="22" step="1" style="width:100%;accent-color:var(--teal)"></label>
+      <label class="check"><input type="checkbox" id="setHl"> Farbige Syntax</label>
+      <label class="check"><input type="checkbox" id="setAutoSync"> Beim Öffnen automatisch synchronisieren</label>
+
+      <p class="group-title">Speicher</p>
+      <p class="help" id="storageInfo"></p>
+      <p><button type="button" class="btn danger" id="wipeBtn">Alle lokalen Dateien und Einstellungen löschen</button></p>
+    </div>
+    <footer>
+      <span class="help" id="versionInfo"></span>
+      <span class="spacer"></span>
+      <button class="btn" value="cancel">Abbrechen</button>
+      <button class="btn primary" value="save" id="settingsSave">Speichern</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="conflictDlg">
+  <form method="dialog" class="dlg">
+    <header><h2>Auf beiden Geräten geändert</h2></header>
+    <div class="body scroll">
+      <p class="help">Diese Dateien wurden auf dem iPad und auf GitHub unterschiedlich bearbeitet. Wähle, welche Fassung gilt. Die andere Fassung wird als Kopie mit dem Zusatz „Konflikt“ aufbewahrt.</p>
+      <div id="conflictList"></div>
+    </div>
+    <footer>
+      <button class="btn" value="cancel">Später</button>
+      <span class="spacer"></span>
+      <button class="btn primary" value="ok">Übernehmen</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="pdfDlg">
+  <form method="dialog" class="dlg">
+    <header><h2>PDF ist fertig</h2></header>
+    <div class="body"><p class="pdfinfo" id="pdfInfo"></p></div>
+    <footer>
+      <button class="btn" value="cancel">Schließen</button>
+      <span class="spacer"></span>
+      <button class="btn" type="button" id="pdfOpen">Öffnen</button>
+      <button class="btn primary" type="button" id="pdfShare">Teilen oder sichern</button>
+    </footer>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="alert"></div>
+
+<script>
+'use strict';
+const APP_VERSION = '1.0.0';
+const $ = (id) => document.getElementById(id);
+const TEXT_EXT = /\.(typ|bib|ya?ml|toml|json|csv|tsv|txt|md|xml|svg|tex|html?|css|js|lua|py)$/i;
+const isText = (p) => TEXT_EXT.test(p);
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+/* ================= tiny helpers ================= */
+let toastTimer;
+function toast(msg, isError = false, ms = 3200) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.toggle('error', isError);
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+function setStatus(text, state = 'ok') {
+  $('statusText').textContent = text;
+  $('status').dataset.state = state;
+}
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function b64FromBytes(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function bytesFromB64(b64) {
+  const s = atob(b64.replace(/\s/g, ''));
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+async function gitSha(bytes) {
+  const head = enc.encode(`blob ${bytes.length}\0`);
+  const all = new Uint8Array(head.length + bytes.length);
+  all.set(head); all.set(bytes, head.length);
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-1', all));
+  return [...d].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+const fmtSize = (n) => n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+
+/* ================= storage (IndexedDB) ================= */
+const DB = {
+  db: null,
+  open() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('typstpad', 1);
+      r.onupgradeneeded = () => {
+        r.result.createObjectStore('files', { keyPath: 'path' });
+        r.result.createObjectStore('meta');
+      };
+      r.onsuccess = () => { this.db = r.result; res(); };
+      r.onerror = () => rej(r.error);
+    });
+  },
+  tx(store, mode, fn) {
+    return new Promise((res, rej) => {
+      const t = this.db.transaction(store, mode);
+      const out = fn(t.objectStore(store));
+      t.oncomplete = () => res(out && 'result' in out ? out.result : undefined);
+      t.onerror = () => rej(t.error);
+    });
+  },
+  all(store) { return this.tx(store, 'readonly', s => s.getAll()); },
+  get(store, key) { return this.tx(store, 'readonly', s => s.get(key)); },
+  put(store, val, key) { return this.tx(store, 'readwrite', s => key === undefined ? s.put(val) : s.put(val, key)); },
+  del(store, key) { return this.tx(store, 'readwrite', s => s.delete(key)); },
+  clear(store) { return this.tx(store, 'readwrite', s => s.clear()); },
+};
+
+/* ================= state ================= */
+// file record: { path, text?: string (LF), bytes?: Uint8Array, eol: '\n'|'\r\n', baseSha: string|null,
+//                deleted?: bool, dirty?: bool, sample?: bool, version: number }
+const files = new Map();
+let settings = {
+  owner: '', repo: '', branch: '', dir: '', token: '',
+  main: 'main.typ', fontSize: 16, highlight: true, autoSync: true,
+  view: null, split: 50, zoom: 1, usedPackages: [], lastCommit: null,
+};
+let current = null;          // path of open file
+const cursorMemory = new Map();
+
+let versionCounter = Date.now();
+const nextVersion = () => ++versionCounter;
+const saveSettings = () => DB.put('meta', settings, 'settings');
+const live = () => [...files.values()].filter(f => !f.deleted);
+const saveFileSoon = (() => {
+  const pending = new Set();
+  const flush = debounce(async () => {
+    const list = [...pending]; pending.clear();
+    for (const p of list) { const f = files.get(p); if (f) await DB.put('files', f); }
+  }, 400);
+  return (f) => { pending.add(f.path); flush(); };
+})();
+async function saveFile(f) { await DB.put('files', f); }
+async function removeFile(path) { files.delete(path); await DB.del('files', path); }
+
+function fileBytes(f) {
+  if (f.bytes) return f.bytes;
+  const text = f.eol === '\r\n' ? f.text.replace(/\n/g, '\r\n') : f.text;
+  return enc.encode(text);
+}
+function makeRecord(path, bytes, baseSha) {
+  if (isText(path)) {
+    let text = dec.decode(bytes);
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    const eol = /\r\n/.test(text) ? '\r\n' : '\n';
+    return { path, text: text.replace(/\r\n/g, '\n'), eol, baseSha, version: nextVersion() };
+  }
+  return { path, bytes, eol: '\n', baseSha, version: nextVersion() };
+}
+function unsyncedCount() {
+  return [...files.values()].filter(f => !f.sample && (f.dirty || f.deleted || (f.baseSha == null && !f.deleted))).length;
+}
+function updateBadge() {
+  const n = settings.repo ? unsyncedCount() : 0;
+  $('syncBadge').hidden = n === 0;
+  $('syncBadge').textContent = n > 99 ? '99+' : String(n);
+  $('syncBtn').classList.toggle('offline', !navigator.onLine);
+  $('syncBtn').title = !navigator.onLine ? 'Offline – Änderungen bleiben gespeichert' : n ? `${n} Änderung(en) hochladen` : 'Mit GitHub synchronisieren';
+}
+
+/* ================= Typst worker ================= */
+const worker = new Worker('worker.js');
+let workerReady = false;
+const sentVersion = new Map();
+let compileSeq = 0, shownSeq = 0, compiling = false, compileAgain = false;
+const pendingPdf = new Map();
+
+function collectChanges() {
+  const changes = [];
+  const alive = new Set();
+  for (const f of live()) {
+    const p = '/' + f.path;
+    alive.add(p);
+    if (sentVersion.get(p) === f.version) continue;
+    sentVersion.set(p, f.version);
+    if (f.text !== undefined && /\.typ$/i.test(f.path)) changes.push({ path: p, text: f.text, version: f.version });
+    else changes.push({ path: p, bytes: f.bytes || enc.encode(f.text), version: f.version });
+  }
+  for (const p of [...sentVersion.keys()]) {
+    if (!alive.has(p)) { sentVersion.delete(p); changes.push({ path: p, deleted: true }); }
+  }
+  return changes;
+}
+function mainPath() {
+  const m = files.get(settings.main);
+  if (m && !m.deleted) return settings.main;
+  const first = live().map(f => f.path).filter(p => /\.typ$/i.test(p)).sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))[0];
+  return first || null;
+}
+function compileNow() {
+  if (!workerReady) return;
+  const main = mainPath();
+  if (!main) { showEmpty('Lege eine .typ-Datei an, um etwas zu sehen.'); return; }
+  if (compiling) { compileAgain = true; return; }
+  compiling = true; compileAgain = false;
+  $('preview').classList.add('stale');
+  worker.postMessage({ type: 'compile', id: ++compileSeq, main: '/' + main, changes: collectChanges() });
+}
+const compileSoon = debounce(compileNow, 220);
+
+worker.onmessage = (ev) => {
+  const m = ev.data;
+  if (m.type === 'status') setStatus(m.text, 'busy');
+  else if (m.type === 'ready') { workerReady = true; setStatus('Bereit', 'ok'); compileNow(); }
+  else if (m.type === 'result') {
+    compiling = false;
+    if (m.id > shownSeq) {
+      shownSeq = m.id;
+      if (m.svg) showSvg(m.svg);
+      $('preview').classList.remove('stale');
+      showDiagnostics(m.diagnostics, m.unavailable, m.ms);
+      if (m.used && m.used.join() !== settings.usedPackages.join()) { settings.usedPackages = m.used; saveSettings(); }
+    }
+    if (compileAgain) compileNow();
+  } else if (m.type === 'pdf') {
+    const cb = pendingPdf.get(m.id); pendingPdf.delete(m.id); cb?.(m);
+  } else if (m.type === 'error') {
+    if (m.stage === 'init') {
+      setStatus('Typst konnte nicht starten', 'error');
+      showEmpty(navigator.onLine
+        ? 'Typst konnte nicht geladen werden: ' + m.message
+        : 'Beim ersten Start braucht Typst Pad einmal Internet, um den Compiler zu laden. Danach geht alles offline.');
+      return;
+    }
+    if (m.stage === 'pdf') { const cb = pendingPdf.get(m.id); pendingPdf.delete(m.id); cb?.({ error: m.message }); return; }
+    compiling = false;
+    $('preview').classList.remove('stale');
+    setStatus('Interner Fehler', 'error');
+    showDiagnostics([{ severity: 'error', message: 'Typst ist abgestürzt: ' + m.message, path: '', range: '' }], [], 0);
+    if (compileAgain) compileNow();
+  }
+};
+
+/* ================= preview ================= */
+function showEmpty(text) {
+  $('preview').innerHTML = '';
+  const d = document.createElement('div'); d.className = 'empty'; d.textContent = text;
+  $('preview').appendChild(d);
+}
+function showSvg(svg) {
+  const pv = $('preview');
+  const ratio = pv.scrollHeight > pv.clientHeight ? pv.scrollTop / (pv.scrollHeight - pv.clientHeight) : 0;
+  const top = pv.scrollTop, left = pv.scrollLeft;
+  let doc = pv.querySelector('.doc');
+  if (!doc) { pv.innerHTML = ''; doc = document.createElement('div'); doc.className = 'doc'; pv.appendChild(doc); }
+  doc.innerHTML = svg;
+  layoutPages(doc.querySelector('svg.typst-doc'));
+  // Keep the reader's place while the document grows or shrinks.
+  pv.scrollTop = top; pv.scrollLeft = left;
+  if (Math.abs(pv.scrollTop - top) > 2) pv.scrollTop = ratio * (pv.scrollHeight - pv.clientHeight);
+}
+// Put a sheet of paper under every page and leave a gap between pages.
+function layoutPages(svg) {
+  if (!svg) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const pages = [...svg.children].filter(g => g.classList?.contains('typst-page'));
+  if (!pages.length) return;
+  const widths = pages.map(g => +g.dataset.pageWidth || 0);
+  const maxW = Math.max(...widths);
+  const gap = maxW * 0.025;
+  let y = 0;
+  pages.forEach((g, i) => {
+    const w = widths[i], h = +g.dataset.pageHeight || 0;
+    g.setAttribute('transform', `translate(${(maxW - w) / 2}, ${y})`);
+    const r = document.createElementNS(NS, 'rect');
+    r.setAttribute('class', 'pg-bg'); r.setAttribute('width', w); r.setAttribute('height', h);
+    g.insertBefore(r, g.firstChild);
+    y += h + gap;
+  });
+  const total = y - gap;
+  svg.setAttribute('viewBox', `0 0 ${maxW} ${total}`);
+  svg.setAttribute('width', maxW); svg.setAttribute('height', total);
+}
+function setZoom(z) {
+  settings.zoom = Math.min(3, Math.max(0.4, Math.round(z * 100) / 100));
+  document.documentElement.style.setProperty('--zoom', settings.zoom);
+  $('zoomFit').textContent = settings.zoom === 1 ? 'Breite' : Math.round(settings.zoom * 100) + ' %';
+  saveSettings();
+}
+
+/* ================= diagnostics ================= */
+function parseRange(r) {
+  const m = /^(\d+):(\d+)/.exec(r || '');
+  return m ? { line: +m[1], col: +m[2] } : null;
+}
+function showDiagnostics(diags, unavailable, ms) {
+  const list = $('diagList');
+  list.innerHTML = '';
+  const items = [...(diags || [])];
+  for (const k of unavailable || []) {
+    const i = k.lastIndexOf('-');
+    items.push({ severity: 'error', path: '', range: '', message: `Paket @preview/${k.slice(0, i)}:${k.slice(i + 1)} ist nicht verfügbar.`,
+      hint: navigator.onLine ? 'Prüfe Name und Version.' : 'Öffne die App einmal mit Internet, dann wird das Paket für offline gespeichert.' });
+  }
+  const errors = items.filter(d => d.severity === 'error').length;
+  const warns = items.length - errors;
+  const diag = $('diag');
+  diag.dataset.level = errors ? 'error' : warns ? 'warn' : 'ok';
+  $('diagSummary').textContent = errors ? `${errors} Fehler` : warns ? `${warns} Warnung${warns > 1 ? 'en' : ''}` : 'Fehlerfrei';
+  $('diagTime').textContent = ms ? `${ms} ms` : '';
+  if (errors) setStatus(`${errors} Fehler`, 'error');
+  else setStatus(ms ? `Aktualisiert in ${ms} ms` : 'Bereit', warns ? 'warn' : 'ok');
+  diag.dataset.open = items.length ? 'true' : 'false';
+  for (const d of items) {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.className = 'sev-' + d.severity;
+    const pos = parseRange(d.range);
+    const file = (d.path || '').replace(/^\//, '');
+    const inPkg = d.package && d.package.length;
+    const where = inPkg ? d.package : file ? `${file}${pos ? ':' + (pos.line + 1) : ''}` : '';
+    b.innerHTML = `<span class="where">${escapeHtml(where || (d.severity === 'error' ? 'Fehler' : 'Hinweis'))}</span><span>${escapeHtml(d.message)}</span>` +
+      (d.hint ? `<span class="hint">${escapeHtml(d.hint)}</span>` : '');
+    if (file && pos && !inPkg) b.onclick = () => jumpTo(file, pos.line, pos.col);
+    li.appendChild(b); list.appendChild(li);
+  }
+}
+$('diagHead').onclick = () => { const d = $('diag'); d.dataset.open = d.dataset.open === 'true' ? 'false' : 'true'; };
+function jumpTo(path, line, col) {
+  if (!files.has(path)) return;
+  openFile(path);
+  const ta = $('editor');
+  const lines = ta.value.split('\n');
+  let off = 0;
+  for (let i = 0; i < Math.min(line, lines.length); i++) off += lines[i].length + 1;
+  off += Math.min(col, (lines[line] || '').length);
+  ta.focus();
+  ta.setSelectionRange(off, off);
+  // bring the line into view
+  const lh = parseFloat(getComputedStyle(ta).lineHeight) || 24;
+  ta.scrollTop = Math.max(0, line * lh - ta.clientHeight / 3);
+}
+
+/* ================= editor ================= */
+const TOKENS = new RegExp([
+  '(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?(?:\\*\\/|$))',                 // 1 comment
+  '("(?:[^"\\\\\\n]|\\\\.)*"?)',                                   // 2 string
+  '(```[\\s\\S]*?(?:```|$)|`[^`\\n]*`?)',                          // 3 raw
+  '(^[ \\t]*=+[ \\t][^\\n]*)',                                     // 4 heading
+  '(\\$(?:[^$\\\\]|\\\\[\\s\\S])*\\$?)',                           // 5 math
+  '(#(?:let|set|show|import|include|if|else|for|in|while|return|context|break|continue|and|or|not|none|auto|true|false)\\b)', // 6 keyword
+  '(#[A-Za-z_][\\w-]*(?:\\.[A-Za-z_][\\w-]*)*)',                   // 7 function / variable
+  '(<[\\w:.-]+>|@[\\w:.-]+)',                                       // 8 label / reference
+  '(\\\\.)',                                                        // 9 escape
+].join('|'), 'gm');
+const CLASSES = [null, 'c', 's', 'r', 'h', 'm', 'k', 'f', 'l', 'e'];
+function highlight(src) {
+  let out = '', last = 0, m;
+  TOKENS.lastIndex = 0;
+  while ((m = TOKENS.exec(src))) {
+    if (m[0] === '') { TOKENS.lastIndex++; continue; }
+    out += escapeHtml(src.slice(last, m.index));
+    let g = 1; while (m[g] === undefined) g++;
+    out += `<span class="${CLASSES[g]}">${escapeHtml(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + escapeHtml(src.slice(last)) + '\n ';
+}
+let hlFrame = 0;
+function refreshHighlight() {
+  if (!settings.highlight) return;
+  cancelAnimationFrame(hlFrame);
+  hlFrame = requestAnimationFrame(() => {
+    const ta = $('editor');
+    $('hl').innerHTML = highlight(ta.value);
+    syncOverlay();
+  });
+}
+function syncOverlay() {
+  const ta = $('editor'), hl = $('hl');
+  hl.style.width = ta.clientWidth + 'px';
+  hl.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+}
+function applyEditorSettings() {
+  document.documentElement.style.setProperty('--code-size', settings.fontSize + 'px');
+  $('editwrap').classList.toggle('hl-on', !!settings.highlight);
+  if (settings.highlight) refreshHighlight(); else $('hl').innerHTML = '';
+}
+
+function openFile(path) {
+  const f = files.get(path);
+  if (!f || f.deleted) return;
+  const ta = $('editor');
+  if (current && files.has(current)) cursorMemory.set(current, { s: ta.selectionStart, e: ta.selectionEnd, top: ta.scrollTop });
+  current = path;
+  $('curFile').textContent = path.split('/').pop();
+  const wrap = $('editwrap');
+  if (f.text !== undefined) {
+    wrap.classList.remove('is-binary');
+    ta.value = f.text;
+    const mem = cursorMemory.get(path);
+    if (mem) { ta.setSelectionRange(mem.s, mem.e); ta.scrollTop = mem.top; } else { ta.setSelectionRange(0, 0); ta.scrollTop = 0; }
+    refreshHighlight();
+  } else {
+    wrap.classList.add('is-binary');
+    const note = $('binaryNote');
+    note.innerHTML = '';
+    const p = document.createElement('div');
+    p.textContent = `${path} (${fmtSize(f.bytes.length)}) kann hier nicht bearbeitet werden, wird aber beim Kompilieren verwendet.`;
+    note.appendChild(p);
+    if (/\.(png|jpe?g|gif|webp)$/i.test(path)) {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(new Blob([f.bytes]));
+      img.onload = () => URL.revokeObjectURL(img.src);
+      note.appendChild(img);
+    }
+  }
+  settings.open = path; saveSettings();
+  renderFileList();
+}
+
+const editor = $('editor');
+editor.addEventListener('input', () => {
+  const f = files.get(current);
+  if (!f || f.text === undefined) return;
+  f.text = editor.value;
+  f.version = nextVersion();
+  f.dirty = true;
+  if (f.sample) f.sample = false;
+  saveFileSoon(f);
+  refreshHighlight();
+  updateBadge();
+  compileSoon();
+});
+editor.addEventListener('scroll', syncOverlay, { passive: true });
+new ResizeObserver(() => syncOverlay()).observe(editor);
+
+function insertText(text, wrapSelection) {
+  editor.focus();
+  const s = editor.selectionStart, e = editor.selectionEnd;
+  const sel = editor.value.slice(s, e);
+  const PAIRS = { '[': ']', '(': ')', '{': '}', '"': '"', '$': '$', '*': '*', '_': '_', '`': '`', '<': '>' };
+  let ins = text, caretFrom = null;
+  if (wrapSelection && sel && PAIRS[text]) { ins = text + sel + PAIRS[text]; caretFrom = s + ins.length; }
+  // execCommand keeps the native undo stack intact
+  if (!document.execCommand('insertText', false, ins)) {
+    editor.setRangeText(ins, s, e, 'end');
+    editor.dispatchEvent(new Event('input'));
+  }
+  if (caretFrom !== null) editor.setSelectionRange(caretFrom, caretFrom);
+}
+editor.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Tab' && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+    ev.preventDefault();
+    if (ev.shiftKey) outdent(); else insertText('  ');
+  } else if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 's') {
+    ev.preventDefault(); sync();
+  } else if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+    ev.preventDefault(); compileNow();
+  }
+});
+function outdent() {
+  const v = editor.value, s = editor.selectionStart;
+  const ls = v.lastIndexOf('\n', s - 1) + 1;
+  const n = v.startsWith('  ', ls) ? 2 : v.startsWith(' ', ls) ? 1 : 0;
+  if (!n) return;
+  editor.setSelectionRange(ls, ls + n);
+  document.execCommand('delete');
+  editor.setSelectionRange(Math.max(ls, s - n), Math.max(ls, s - n));
+}
+
+// Key strip: characters that take several taps on the iPad keyboard.
+const KEYS = ['#', '$', '=', '*', '_', '[', ']', '{', '}', '(', ')', '<', '>', '@', '"', '`', '\\', '/', '-', '+', ':', ';', '~', '^', '&', '|'];
+for (const k of [...KEYS, 'Tab', 'Einrücken zurück']) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = k === 'Einrücken zurück' ? '⇤' : k === 'Tab' ? '⇥' : k;
+  if (k.length > 1) b.className = 'wide';
+  b.setAttribute('aria-label', k);
+  // keep focus (and the keyboard) in the editor
+  b.addEventListener('pointerdown', (e) => e.preventDefault());
+  b.addEventListener('mousedown', (e) => e.preventDefault());
+  b.addEventListener('click', () => {
+    if (k === 'Tab') insertText('  ');
+    else if (k === 'Einrücken zurück') { editor.focus(); outdent(); }
+    else insertText(k, true);
+  });
+  $('keys').appendChild(b);
+}
+
+/* ================= files drawer ================= */
+function openDrawer(open) {
+  $('drawer').classList.toggle('open', open);
+  $('scrim').classList.toggle('show', open);
+  if (open) renderFileList();
+}
+$('filesBtn').onclick = () => openDrawer(true);
+$('drawerClose').onclick = () => openDrawer(false);
+$('scrim').onclick = () => openDrawer(false);
+
+function renderFileList() {
+  const ul = $('fileList');
+  ul.innerHTML = '';
+  const main = mainPath();
+  const list = live().sort((a, b) => a.path.localeCompare(b.path, 'de'));
+  if (!list.length) {
+    const li = document.createElement('li'); li.style.padding = '14px'; li.style.color = 'var(--muted)';
+    li.textContent = 'Noch keine Dateien. Lege eine neue an oder synchronisiere mit GitHub.';
+    ul.appendChild(li); return;
+  }
+  for (const f of list) {
+    const li = document.createElement('li');
+    if (f.path === current) li.className = 'current';
+    const b = document.createElement('button'); b.className = 'open';
+    const slash = f.path.lastIndexOf('/');
+    b.innerHTML = `<span class="name">${slash >= 0 ? `<span class="dir">${escapeHtml(f.path.slice(0, slash + 1))}</span>` : ''}${escapeHtml(f.path.slice(slash + 1))}</span>` +
+      (f.path === main ? '<span class="tag">Hauptdatei</span>' : '') +
+      (!f.sample && (f.dirty || f.baseSha == null) && settings.repo ? '<span class="tag changed">nicht hochgeladen</span>' : '');
+    b.onclick = () => { openFile(f.path); openDrawer(false); };
+    const more = document.createElement('button'); more.className = 'more'; more.textContent = '⋯';
+    more.setAttribute('aria-label', 'Aktionen für ' + f.path);
+    more.onclick = () => fileActions(f.path);
+    li.append(b, more); ul.appendChild(li);
+  }
+}
+function validName(name) {
+  name = (name || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/');
+  if (!name || name.split('/').some(s => s === '.' || s === '..' || !s)) return null;
+  return name;
+}
+$('newFileBtn').onclick = async () => {
+  const name = validName(prompt('Name der neuen Datei (z. B. kapitel/einleitung.typ):', '.typ'));
+  if (!name) return;
+  if (files.has(name) && !files.get(name).deleted) { toast('Diese Datei gibt es schon.', true); return; }
+  const old = files.get(name);
+  const f = { path: name, text: '', eol: '\n', baseSha: old?.baseSha ?? null, dirty: true, version: nextVersion() };
+  if (!isText(name)) { f.bytes = new Uint8Array(); delete f.text; }
+  files.set(name, f); await saveFile(f);
+  openFile(name); openDrawer(false); updateBadge(); compileSoon();
+};
+$('uploadBtn').onclick = () => $('uploadInput').click();
+$('uploadInput').onchange = async (ev) => {
+  const chosen = [...ev.target.files];
+  ev.target.value = '';
+  if (!chosen.length) return;
+  const folder = current && current.includes('/') ? current.slice(0, current.lastIndexOf('/') + 1) : '';
+  for (const file of chosen) {
+    const suggested = folder + file.name.replace(/\s+/g, '-');
+    const name = chosen.length === 1 ? validName(prompt('Speichern als:', suggested)) : suggested;
+    if (!name) continue;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const old = files.get(name);
+    const f = makeRecord(name, bytes, old?.baseSha ?? null);
+    f.dirty = true;
+    files.set(name, f); await saveFile(f);
+  }
+  renderFileList(); updateBadge(); compileSoon();
+  toast(chosen.length === 1 ? 'Datei hinzugefügt' : `${chosen.length} Dateien hinzugefügt`);
+};
+async function fileActions(path) {
+  const f = files.get(path);
+  const isTyp = /\.typ$/i.test(path);
+  const choice = prompt(
+    `${path}\n\nTippe eine Zahl:\n` + (isTyp ? '1  Als Hauptdatei verwenden\n' : '') + '2  Umbenennen\n3  Löschen', '');
+  if (choice === '1' && isTyp) {
+    settings.main = path; await saveSettings(); renderFileList(); compileNow();
+  } else if (choice === '2') {
+    const name = validName(prompt('Neuer Name:', path));
+    if (!name || name === path) return;
+    if (files.has(name) && !files.get(name).deleted) { toast('Diese Datei gibt es schon.', true); return; }
+    const target = files.get(name);
+    const copy = { ...f, path: name, baseSha: target?.baseSha ?? null, dirty: true, deleted: false, version: nextVersion() };
+    files.set(name, copy); await saveFile(copy);
+    await deleteLocal(path);
+    if (settings.main === path) { settings.main = name; saveSettings(); }
+    if (current === path) openFile(name);
+    renderFileList(); updateBadge(); compileSoon();
+  } else if (choice === '3') {
+    if (!confirm(`${path} löschen?` + (f.baseSha ? '\nBeim nächsten Synchronisieren wird sie auch auf GitHub gelöscht.' : ''))) return;
+    await deleteLocal(path);
+    if (current === path) { const next = mainPath(); if (next) openFile(next); else { current = null; editor.value = ''; refreshHighlight(); } }
+    renderFileList(); updateBadge(); compileSoon();
+  }
+}
+async function deleteLocal(path) {
+  const f = files.get(path);
+  if (!f) return;
+  if (f.baseSha) {  // keep a tombstone so the deletion reaches GitHub
+    const t = { path, baseSha: f.baseSha, deleted: true, eol: '\n', version: nextVersion(), text: '' };
+    files.set(path, t); await saveFile(t);
+  } else await removeFile(path);
+}
+
+/* ================= GitHub sync ================= */
+const normDir = (d) => (d || '').trim().replace(/^\/+|\/+$/g, '');
+function parseRepoInput(s) {
+  s = (s || '').trim().replace(/\.git$/, '');
+  const m = /github\.com[/:]([^/\s]+)\/([^/\s#?]+)(?:\/tree\/([^/\s]+)\/?(.*))?/.exec(s) || /^([^/\s]+)\/([^/\s]+)$/.exec(s);
+  if (!m) return null;
+  return { owner: m[1], repo: m[2], branch: m[3] || '', dir: normDir(m[4] ? decodeURIComponent(m[4]) : '') };
+}
+async function gh(method, path, body) {
+  const res = await fetch('https://api.github.com' + path, {
+    method, cache: 'no-store',
+    headers: {
+      Authorization: 'Bearer ' + settings.token,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    let msg = '';
+    try { msg = (await res.json()).message || ''; } catch {}
+    const e = new Error(ghMessage(res.status, msg));
+    e.status = res.status; e.raw = msg;
+    throw e;
+  }
+  return res.status === 204 ? null : res.json();
+}
+function ghMessage(status, msg) {
+  if (status === 401) return 'Der Zugangsschlüssel ist ungültig oder abgelaufen. Trage in den Einstellungen einen neuen ein.';
+  if (status === 403 && /rate limit/i.test(msg)) return 'GitHub-Limit erreicht. Versuche es in ein paar Minuten erneut.';
+  if (status === 403) return 'Der Schlüssel darf dieses Repository nicht ändern. Gib ihm bei „Contents“ „Read and write“.';
+  if (status === 404) return 'Repository, Branch oder Ordner nicht gefunden. Prüfe die Einstellungen (bei privaten Repos auch den Schlüssel).';
+  if (status === 409) return 'Das Repository ist leer. Lege auf GitHub zuerst eine Datei an (z. B. README).';
+  return `GitHub meldet ${status}${msg ? ': ' + msg : ''}`;
+}
+async function pool(items, n, fn) {
+  const out = []; let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) { const k = i++; out[k] = await fn(items[k]); }
+  }));
+  return out;
+}
+
+let syncing = false;
+async function sync({ quiet = false } = {}) {
+  if (syncing) return;
+  if (!settings.repo || !settings.token) {
+    if (!quiet) { toast('Verbinde zuerst dein GitHub-Repository.'); openSettings(); }
+    return;
+  }
+  if (!navigator.onLine) { if (!quiet) toast('Offline. Deine Änderungen sind gespeichert und werden später hochgeladen.'); return; }
+  syncing = true;
+  $('syncBtn').classList.add('spin');
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await syncOnce(quiet);
+      if (r !== 'retry') break;
+    }
+  } catch (e) {
+    console.error(e);
+    toast(e.message || String(e), true, 6000);
+  } finally {
+    syncing = false;
+    $('syncBtn').classList.remove('spin');
+    updateBadge(); renderFileList();
+  }
+}
+
+async function syncOnce(quiet) {
+  const { owner, repo } = settings;
+  const R = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  if (!settings.branch) settings.branch = (await gh('GET', R)).default_branch;
+  const branch = settings.branch;
+  const dir = normDir(settings.dir);
+  const prefix = dir ? dir + '/' : '';
+
+  const refPath = branch.split('/').map(encodeURIComponent).join('/');
+  const ref = await gh('GET', `${R}/git/ref/heads/${refPath}`);
+  const head = ref.object.sha;
+  const commit = await gh('GET', `${R}/git/commits/${head}`);
+  const tree = await gh('GET', `${R}/git/trees/${commit.tree.sha}?recursive=1`);
+  if (tree.truncated) toast('Das Repository ist sehr groß; eventuell fehlen Dateien. Stelle einen Ordner ein.', true, 6000);
+
+  const remote = new Map();
+  const skipped = [];
+  for (const e of tree.tree) {
+    if (e.type !== 'blob' || !e.path.startsWith(prefix)) continue;
+    const rel = e.path.slice(prefix.length);
+    if (!rel || rel.split('/').some(s => s.startsWith('.git'))) continue;
+    if (e.size > 25 * 1048576) { skipped.push(rel); continue; }
+    remote.set(rel, e.sha);
+  }
+  if (dir && !remote.size && !tree.tree.some(e => e.path === dir && e.type === 'tree')) {
+    // folder does not exist yet: fine, it will be created by the first upload
+  }
+
+  // Untouched welcome file: drop it when the repo already has content.
+  for (const f of [...files.values()]) if (f.sample && remote.size) await removeFile(f.path);
+
+  const localSha = new Map();
+  for (const f of files.values()) if (!f.deleted) localSha.set(f.path, await gitSha(fileBytes(f)));
+
+  const download = [], upload = [], conflicts = [], adopt = [];
+  const paths = new Set([...remote.keys(), ...files.keys()]);
+  for (const p of paths) {
+    const f = files.get(p);
+    const r = remote.get(p) ?? null;
+    const base = f ? f.baseSha ?? null : null;
+    const l = f && !f.deleted ? localSha.get(p) : null;
+    if (f?.sample && !r) continue;                     // never upload the untouched welcome file
+    if (!f) { if (r) download.push(p); continue; }
+    if (r === base) { if (l !== base) upload.push(p); else if (f.dirty) adopt.push([p, r]); continue; }
+    // remote changed since last sync
+    if (l === r) { adopt.push([p, r]); continue; }     // same content on both sides
+    if (l === base) { r ? download.push(p) : await removeFile(p); continue; } // only remote changed
+    conflicts.push(p);
+  }
+
+  if (conflicts.length) {
+    const decisions = await askConflicts(conflicts, remote);
+    if (!decisions) { toast('Konflikte offen. Tippe erneut auf Synchronisieren, wenn du bereit bist.'); return 'stop'; }
+    for (const [p, keep] of decisions) {
+      const f = files.get(p);
+      const r = remote.get(p) ?? null;
+      if (keep === 'local') {
+        // keep the iPad version, park the GitHub version next to it
+        if (r) { const copyName = conflictName(p); await pullInto(R, copyName, r, null); upload.push(copyName); }
+        f.baseSha = r; upload.push(p);
+      } else {
+        if (!f.deleted) {
+          const copy = { ...f, path: conflictName(p), baseSha: null, dirty: true, version: nextVersion(), deleted: false };
+          files.set(copy.path, copy); await saveFile(copy); upload.push(copy.path);
+        }
+        if (r) download.push(p); else await removeFile(p);
+      }
+    }
+  }
+
+  for (const [p, sha] of adopt) {
+    const f = files.get(p);
+    if (f.deleted && !sha) { await removeFile(p); continue; }
+    f.baseSha = sha; f.dirty = false; await saveFile(f);
+  }
+
+  if (download.length) {
+    setStatus(`Lade ${download.length} Datei(en) von GitHub …`, 'busy');
+    await pool(download, 6, (p) => pullInto(R, p, remote.get(p), remote.get(p)));
+  }
+
+  let pushed = 0;
+  const toPush = [...new Set(upload)];
+  if (toPush.length) {
+    setStatus(`Lade ${toPush.length} Datei(en) hoch …`, 'busy');
+    const entries = await pool(toPush, 4, async (p) => {
+      const f = files.get(p);
+      if (!f || f.deleted) return { path: prefix + p, mode: '100644', type: 'blob', sha: null };
+      const blob = await gh('POST', `${R}/git/blobs`, { content: b64FromBytes(fileBytes(f)), encoding: 'base64' });
+      return { path: prefix + p, mode: '100644', type: 'blob', sha: blob.sha };
+    });
+    // deleting a file that is already gone would fail the whole tree
+    const valid = entries.filter(e => e.sha !== null || remote.has(e.path.slice(prefix.length)));
+    if (valid.length) {
+      const newTree = await gh('POST', `${R}/git/trees`, { base_tree: commit.tree.sha, tree: valid });
+      const names = toPush.slice(0, 3).map(p => p.split('/').pop()).join(', ') + (toPush.length > 3 ? ` und ${toPush.length - 3} weitere` : '');
+      const newCommit = await gh('POST', `${R}/git/commits`, { message: `iPad: ${names}`, tree: newTree.sha, parents: [head] });
+      try {
+        await gh('PATCH', `${R}/git/refs/heads/${refPath}`, { sha: newCommit.sha, force: false });
+      } catch (e) {
+        if (e.status === 422) return 'retry';            // someone pushed in between: merge again
+        throw e;
+      }
+      settings.lastCommit = newCommit.sha;
+    }
+    for (const e of entries) {
+      const p = e.path.slice(prefix.length);
+      const f = files.get(p);
+      if (!f) continue;
+      if (f.deleted) await removeFile(p);
+      else { f.baseSha = e.sha; f.dirty = false; await saveFile(f); }
+    }
+    pushed = toPush.length;
+  } else settings.lastCommit = head;
+  await saveSettings();
+
+  if (current && !files.has(current)) current = null;
+  if (!current || files.get(current)?.deleted) { const m = mainPath(); if (m) openFile(m); }
+  else if (download.includes(current) || conflicts.includes(current)) {
+    const f = files.get(current);
+    if (f.text !== undefined && editor.value !== f.text) { editor.value = f.text; refreshHighlight(); }
+  }
+  compileNow();
+  const parts = [];
+  if (download.length) parts.push(`${download.length} geholt`);
+  if (pushed) parts.push(`${pushed} hochgeladen`);
+  if (skipped.length) parts.push(`${skipped.length} zu groß, übersprungen`);
+  if (!quiet || parts.length) toast(parts.length ? 'Synchronisiert: ' + parts.join(', ') : 'Alles ist auf dem neuesten Stand.');
+  return 'done';
+}
+function conflictName(p) {
+  const i = p.lastIndexOf('.'), s = p.lastIndexOf('/');
+  const stamp = new Date().toISOString().slice(0, 10);
+  return i > s ? `${p.slice(0, i)} (Konflikt ${stamp})${p.slice(i)}` : `${p} (Konflikt ${stamp})`;
+}
+async function pullInto(R, localPath, sha, baseSha) {
+  const blob = await gh('GET', `${R}/git/blobs/${sha}`);
+  const bytes = bytesFromB64(blob.content);
+  const f = makeRecord(localPath, bytes, baseSha);
+  f.dirty = baseSha == null;
+  files.set(localPath, f);
+  await saveFile(f);
+}
+function askConflicts(paths, remote) {
+  return new Promise((resolve) => {
+    const box = $('conflictList');
+    box.innerHTML = '';
+    paths.forEach((p, i) => {
+      const f = files.get(p);
+      const div = document.createElement('div'); div.className = 'conflict';
+      const localDesc = f.deleted ? 'Auf dem iPad gelöscht' : 'iPad-Fassung behalten';
+      const remoteDesc = remote.get(p) ? 'GitHub-Fassung übernehmen' : 'Auf GitHub gelöscht: löschen';
+      div.innerHTML = `<div class="fname">${escapeHtml(p)}</div>
+        <label><input type="radio" name="c${i}" value="local"> ${escapeHtml(localDesc)}</label>
+        <label><input type="radio" name="c${i}" value="remote" checked> ${escapeHtml(remoteDesc)}</label>`;
+      box.appendChild(div);
+    });
+    const dlg = $('conflictDlg');
+    dlg.onclose = () => {
+      if (dlg.returnValue !== 'ok') return resolve(null);
+      resolve(paths.map((p, i) => [p, box.querySelector(`input[name=c${i}]:checked`).value]));
+    };
+    dlg.returnValue = '';
+    dlg.showModal();
+  });
+}
+$('syncBtn').onclick = () => sync();
+window.addEventListener('online', () => { updateBadge(); if (settings.autoSync && unsyncedCount()) sync({ quiet: true }); });
+window.addEventListener('offline', updateBadge);
+
+/* ================= settings ================= */
+function fillMainSelect() {
+  const sel = $('setMain'); sel.innerHTML = '';
+  const typs = live().map(f => f.path).filter(p => /\.typ$/i.test(p)).sort();
+  for (const p of typs) { const o = document.createElement('option'); o.value = o.textContent = p; sel.appendChild(o); }
+  sel.value = mainPath() || '';
+}
+async function openSettings() {
+  $('setRepo').value = settings.owner && settings.repo ? `${settings.owner}/${settings.repo}` : '';
+  $('setBranch').value = settings.branch || '';
+  $('setDir').value = settings.dir || '';
+  $('setToken').value = settings.token || '';
+  $('setSize').value = settings.fontSize; $('sizeVal').textContent = settings.fontSize;
+  $('setHl').checked = !!settings.highlight;
+  $('setAutoSync').checked = !!settings.autoSync;
+  $('versionInfo').textContent = 'Version ' + APP_VERSION;
+  fillMainSelect();
+  try {
+    const est = await navigator.storage?.estimate?.();
+    const persisted = await navigator.storage?.persisted?.();
+    $('storageInfo').textContent = est ? `Belegt: ${fmtSize(est.usage || 0)} (Compiler, Schriften, Pakete und deine Dateien).` + (persisted ? ' Dauerhaft gespeichert.' : '') : '';
+  } catch {}
+  $('settingsDlg').returnValue = '';
+  $('settingsDlg').showModal();
+}
+$('settingsBtn').onclick = openSettings;
+$('setSize').oninput = () => { $('sizeVal').textContent = $('setSize').value; };
+$('setRepo').addEventListener('change', () => {
+  const p = parseRepoInput($('setRepo').value);
+  if (p) {
+    if (p.branch) $('setBranch').value = p.branch;
+    if (p.dir) $('setDir').value = p.dir;
+    $('setRepo').value = `${p.owner}/${p.repo}`;
+  }
+});
+$('settingsDlg').addEventListener('close', async () => {
+  if ($('settingsDlg').returnValue !== 'save') return;
+  const raw = $('setRepo').value.trim();
+  const p = raw ? parseRepoInput(raw) : { owner: '', repo: '', branch: '', dir: '' };
+  if (!p) { toast('Repository nicht erkannt. Beispiel: benutzer/repo', true); return; }
+  const branch = $('setBranch').value.trim() || p.branch || '';
+  const dir = normDir($('setDir').value || p.dir);
+  const changedRepo = p.owner !== settings.owner || p.repo !== settings.repo || branch !== (settings.branch || '') || dir !== (settings.dir || '');
+  if (changedRepo && settings.repo) {
+    const pending = unsyncedCount();
+    const ok = confirm(`Du wechselst das Repository. Die Dateien auf dem iPad werden durch die aus dem neuen Repository ersetzt.` +
+      (pending ? `\n\nAchtung: ${pending} Änderung(en) sind noch nicht hochgeladen und gehen verloren.` : ''));
+    if (!ok) return;
+    for (const path of [...files.keys()]) await removeFile(path);
+    current = null; editor.value = ''; refreshHighlight();
+  } else if (changedRepo) {
+    // first connection: local files (except the welcome file) become new uploads
+    for (const f of files.values()) f.baseSha = null;
+  }
+  Object.assign(settings, { owner: p.owner, repo: p.repo, branch, dir, token: $('setToken').value.trim() });
+  if (changedRepo) settings.lastCommit = null;
+  const m = $('setMain').value; if (m) settings.main = m;
+  settings.fontSize = +$('setSize').value;
+  settings.highlight = $('setHl').checked;
+  settings.autoSync = $('setAutoSync').checked;
+  await saveSettings();
+  applyEditorSettings(); updateBadge(); renderFileList(); compileNow();
+  if (settings.repo && settings.token && changedRepo) sync();
+});
+$('wipeBtn').onclick = async () => {
+  if (!confirm('Wirklich alle lokalen Dateien und Einstellungen löschen? Was nicht auf GitHub ist, geht verloren.')) return;
+  await DB.clear('files'); await DB.clear('meta');
+  location.reload();
+};
+
+/* ================= PDF export ================= */
+let lastPdf = null;
+$('pdfBtn').onclick = () => {
+  if (!workerReady) { toast('Typst ist noch nicht bereit.'); return; }
+  const main = mainPath();
+  if (!main) return;
+  const id = ++compileSeq;
+  setStatus('Erzeuge PDF …', 'busy');
+  pendingPdf.set(id, (m) => {
+    if (m.error || !m.bytes) {
+      setStatus('PDF fehlgeschlagen', 'error');
+      toast(m.error ? 'PDF fehlgeschlagen: ' + m.error : 'Das Dokument hat Fehler. Behebe sie zuerst.', true, 5000);
+      return;
+    }
+    setStatus('PDF fertig', 'ok');
+    const name = main.split('/').pop().replace(/\.typ$/i, '') + '.pdf';
+    lastPdf = new File([m.bytes], name, { type: 'application/pdf' });
+    $('pdfInfo').textContent = `${name}, ${fmtSize(m.bytes.length)}`;
+    $('pdfDlg').showModal();
+  });
+  worker.postMessage({ type: 'pdf', id, main: '/' + main, changes: collectChanges() });
+};
+$('pdfShare').onclick = async () => {
+  if (!lastPdf) return;
+  if (navigator.canShare && navigator.canShare({ files: [lastPdf] })) {
+    try { await navigator.share({ files: [lastPdf], title: lastPdf.name }); $('pdfDlg').close(); } catch (e) { if (e.name !== 'AbortError') toast('Teilen nicht möglich: ' + e.message, true); }
+  } else {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(lastPdf); a.download = lastPdf.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    $('pdfDlg').close();
+  }
+};
+$('pdfOpen').onclick = () => {
+  if (!lastPdf) return;
+  const url = URL.createObjectURL(lastPdf);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+};
+
+/* ================= layout: views, divider, zoom ================= */
+function setView(v) {
+  settings.view = v;
+  $('work').dataset.view = v;
+  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === v)));
+  saveSettings();
+  requestAnimationFrame(syncOverlay);
+}
+document.querySelectorAll('.seg button').forEach(b => b.onclick = () => setView(b.dataset.view));
+(() => {
+  const div = $('divider');
+  let dragging = false;
+  div.addEventListener('pointerdown', (e) => { dragging = true; div.classList.add('drag'); div.setPointerCapture(e.pointerId); e.preventDefault(); });
+  div.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const r = $('work').getBoundingClientRect();
+    const pct = Math.min(80, Math.max(20, (e.clientX - r.left) / r.width * 100));
+    settings.split = Math.round(pct * 10) / 10;
+    document.documentElement.style.setProperty('--split', settings.split + '%');
+    syncOverlay();
+  });
+  const end = () => { if (!dragging) return; dragging = false; div.classList.remove('drag'); saveSettings(); };
+  div.addEventListener('pointerup', end); div.addEventListener('pointercancel', end);
+  div.addEventListener('dblclick', () => { settings.split = 50; document.documentElement.style.setProperty('--split', '50%'); saveSettings(); syncOverlay(); });
+})();
+document.querySelectorAll('.zoom button').forEach(b => {
+  if (b.dataset.zoom === 'fit') b.id = 'zoomFit';
+  b.onclick = () => setZoom(b.dataset.zoom === 'fit' ? 1 : settings.zoom * (b.dataset.zoom === '+' ? 1.2 : 1 / 1.2));
+});
+
+/* ================= stop the whole page from moving ================= */
+// iPadOS rubber-bands the page when you drag anything that is not a scroll area.
+document.addEventListener('touchmove', (e) => {
+  if (!e.target.closest('.scroll, dialog, #drawer')) e.preventDefault();
+}, { passive: false });
+// Keep the app exactly as tall as the visible area, also with the keyboard open.
+function fitViewport() {
+  const vv = window.visualViewport;
+  const h = vv ? vv.height : window.innerHeight;
+  $('app').style.height = h + 'px';
+  if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+  syncOverlay();
+}
+window.visualViewport?.addEventListener('resize', fitViewport);
+window.visualViewport?.addEventListener('scroll', fitViewport);
+window.addEventListener('resize', fitViewport);
+document.addEventListener('focusin', () => setTimeout(fitViewport, 50));
+
+/* ================= start ================= */
+const SAMPLE = `#set page(paper: "a4", margin: 2.2cm)
+#set text(lang: "de", size: 11pt)
+#set heading(numbering: "1.")
+
+= Willkommen in Typst Pad
+
+Links schreibst du, rechts erscheint sofort das Dokument.
+
+- Oben links unter *Dateien* legst du neue Dateien an oder fügst Bilder hinzu.
+- In den *Einstellungen* verbindest du dein GitHub-Repository.
+- Pakete wie `+'`@preview/…`'+` werden einmal geladen und danach offline gespeichert.
+
+$ integral_0^1 x^2 dif x = 1/3 $
+`;
+
+(async function start() {
+  try { await DB.open(); } catch (e) { setStatus('Speicher nicht verfügbar', 'error'); toast('Der Browser erlaubt keinen Speicher (privater Modus?).', true, 8000); }
+  try {
+    const saved = DB.db && await DB.get('meta', 'settings');
+    if (saved) settings = { ...settings, ...saved };
+    for (const f of (DB.db ? await DB.all('files') : [])) files.set(f.path, f);
+  } catch (e) { console.error(e); }
+  if (!files.size) {
+    const f = { path: 'main.typ', text: SAMPLE, eol: '\n', baseSha: null, sample: true, version: nextVersion() };
+    files.set(f.path, f); if (DB.db) await saveFile(f);
+  }
+  document.documentElement.style.setProperty('--split', settings.split + '%');
+  setZoom(settings.zoom || 1);
+  setView(settings.view || (window.innerWidth >= 900 ? 'split' : 'code'));
+  applyEditorSettings();
+  fitViewport();
+  const first = (settings.open && files.has(settings.open) && !files.get(settings.open).deleted) ? settings.open : mainPath();
+  if (first) openFile(first);
+  updateBadge();
+  worker.postMessage({ type: 'init', usedPackages: settings.usedPackages || [] });
+  navigator.storage?.persist?.().catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if (settings.autoSync && settings.repo && settings.token && navigator.onLine) sync({ quiet: true });
+})();
+</script>
+</body>
+</html>
