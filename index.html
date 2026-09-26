@@ -70,7 +70,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   height: 38px; padding: 0 12px; border: 0; border-radius: 9px; background: var(--ink-3);
   font-weight: 600;
 }
-.filebtn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filebtn .titles { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; line-height: 1.1; }
+.filebtn .titles span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filebtn .proj { font-size: 11.5px; font-weight: 500; color: var(--teal); }
 .status {
   display: flex; align-items: center; gap: 7px; min-width: 0;
   color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden;
@@ -219,7 +221,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .scrim.show { display: block; }
 .drawer-head { display: flex; align-items: center; gap: 8px; padding: 4px 14px 12px; }
 .drawer-head h2 { flex: 1; margin: 0; font-size: 17px; }
-.drawer-actions { display: flex; gap: 8px; padding: 0 14px 12px; }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 12px; }
+.sheet-btn { display: block; width: 100%; min-height: 48px; padding: 0 16px; margin: 6px 0; border: 0; border-radius: 10px; background: var(--ink-3); text-align: left; font-size: 15.5px; }
+.sheet-btn.danger { color: var(--red); }
+.sheet-btn:active { filter: brightness(1.15); }
+#actionTitle { font: 600 14px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
 .btn {
   height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: var(--ink-3); font-size: 14.5px;
 }
@@ -228,8 +234,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .btn:active { filter: brightness(1.15); }
 .filelist { flex: 1; overflow-y: auto; overscroll-behavior: contain; list-style: none; margin: 0; padding: 0 0 20px; }
 .filelist li { display: flex; align-items: center; }
+.filelist li.empty-hint { padding: 14px; color: var(--muted); }
+.filelist .chev { flex: none; width: 14px; color: var(--muted); font-size: 12px; }
+.filelist .open svg { flex: none; width: 18px; height: 18px; align-self: center; stroke: var(--muted); fill: none; stroke-width: 1.8; stroke-linejoin: round; }
+.filelist li.folder .name { font-weight: 600; }
+.filelist li.folder.active .open svg { stroke: var(--teal); }
+.filelist .tag.on { color: var(--ink); background: var(--teal); padding: 1px 6px; border-radius: 5px; }
 .filelist .open {
-  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; height: 44px; padding: 0 14px;
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px 0 calc(10px + var(--depth, 0) * 18px);
   border: 0; background: none; text-align: left;
 }
 .filelist li.current .open { background: var(--ink-3); }
@@ -294,7 +306,7 @@ dialog::backdrop { background: rgba(8,14,16,.55); }
   <header class="bar">
     <button id="filesBtn" class="filebtn" aria-label="Dateien">
       <svg viewBox="0 0 24 24"><path d="M4 6h6l2 2h8v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>
-      <span id="curFile">main.typ</span>
+      <span class="titles"><span id="curProj" class="proj" hidden></span><span id="curFile">main.typ</span></span>
     </button>
     <div id="status" class="status" role="status" data-state="busy"><i class="dot"></i><span id="statusText">Starte …</span></div>
     <div class="spacer"></div>
@@ -347,8 +359,9 @@ dialog::backdrop { background: rgba(8,14,16,.55); }
     <button class="iconbtn" id="drawerClose" aria-label="Schließen"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   </div>
   <div class="drawer-actions">
+    <button class="btn primary" id="newFolderBtn">Neuer Ordner</button>
     <button class="btn" id="newFileBtn">Neue Datei</button>
-    <button class="btn" id="uploadBtn">Bild oder Datei hinzufügen</button>
+    <button class="btn" id="uploadBtn">Hinzufügen</button>
     <input type="file" id="uploadInput" multiple hidden>
   </div>
   <ul class="filelist scroll" id="fileList"></ul>
@@ -368,9 +381,6 @@ dialog::backdrop { background: rgba(8,14,16,.55); }
       <label class="field"><span>Zugangsschlüssel (Token)</span>
         <input type="password" id="setToken" placeholder="github_pat_…" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"></label>
       <p class="help">Erstelle einen <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Fine-grained Token</a>: nur dieses Repository auswählen, unter „Repository permissions“ bei „Contents“ „Read and write“ wählen. Der Schlüssel bleibt nur auf diesem Gerät.</p>
-
-      <p class="group-title">Dokument</p>
-      <label class="field"><span>Hauptdatei (wird kompiliert)</span><select id="setMain"></select></label>
 
       <p class="group-title">Editor</p>
       <label class="field"><span>Schriftgröße: <b id="sizeVal">16</b> px</span><input type="range" id="setSize" min="13" max="22" step="1" style="width:100%;accent-color:var(--teal)"></label>
@@ -418,11 +428,19 @@ dialog::backdrop { background: rgba(8,14,16,.55); }
   </form>
 </dialog>
 
+<dialog id="actionDlg">
+  <form method="dialog" class="dlg">
+    <header><h2 id="actionTitle"></h2></header>
+    <div class="body" id="actionList"></div>
+    <footer><span class="spacer"></span><button class="btn" value="">Abbrechen</button></footer>
+  </form>
+</dialog>
+
 <div class="toast" id="toast" role="alert"></div>
 
 <script>
 'use strict';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const $ = (id) => document.getElementById(id);
 const TEXT_EXT = /\.(typ|bib|ya?ml|toml|json|csv|tsv|txt|md|xml|svg|tex|html?|css|js|lua|py)$/i;
 const isText = (p) => TEXT_EXT.test(p);
@@ -569,15 +587,11 @@ function collectChanges() {
   }
   return changes;
 }
-function mainPath() {
-  const m = files.get(settings.main);
-  if (m && !m.deleted) return settings.main;
-  const first = live().map(f => f.path).filter(p => /\.typ$/i.test(p)).sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))[0];
-  return first || null;
-}
+let lastMain = null;
 function compileNow() {
   if (!workerReady) return;
   const main = mainPath();
+  lastMain = main;
   if (!main) { showEmpty('Lege eine .typ-Datei an, um etwas zu sehen.'); return; }
   if (compiling) { compileAgain = true; return; }
   compiling = true; compileAgain = false;
@@ -771,7 +785,7 @@ function openFile(path) {
   const ta = $('editor');
   if (current && files.has(current)) cursorMemory.set(current, { s: ta.selectionStart, e: ta.selectionEnd, top: ta.scrollTop });
   current = path;
-  $('curFile').textContent = path.split('/').pop();
+  updateTitle();
   const wrap = $('editwrap');
   if (f.text !== undefined) {
     wrap.classList.remove('is-binary');
@@ -795,6 +809,7 @@ function openFile(path) {
   }
   settings.open = path; saveSettings();
   renderFileList();
+  if (workerReady && mainPath() !== lastMain) compileNow();
 }
 
 const editor = $('editor');
@@ -866,7 +881,51 @@ for (const k of [...KEYS, 'Tab', 'Einrücken zurück']) {
   $('keys').appendChild(b);
 }
 
-/* ================= files drawer ================= */
+/* ================= files drawer (folders & projects) ================= */
+// Every folder can be a project: its main file is the one chosen for that folder,
+// otherwise its main.typ. A file belongs to the nearest folder above it that has one.
+const dirOf = (p) => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+const baseOf = (p) => p.slice(p.lastIndexOf('/') + 1);
+const isLive = (p) => { const f = files.get(p); return !!f && !f.deleted; };
+function folderMain(dir) {
+  const chosen = settings.mains?.[dir];
+  if (chosen && isLive(chosen) && dirOf(chosen) === dir) return chosen;
+  const def = dir ? dir + '/main.typ' : 'main.typ';
+  return isLive(def) ? def : null;
+}
+function mainFor(path) {
+  let d = dirOf(path);
+  for (;;) {
+    const m = folderMain(d);
+    if (m) return m;
+    if (!d) break;
+    d = dirOf(d);
+  }
+  return null;
+}
+function mainPath() {
+  if (current && isLive(current)) {
+    const m = mainFor(current);
+    if (m) return m;
+    if (/\.typ$/i.test(current)) return current;   // no project found: compile the open file itself
+  }
+  const root = folderMain('');
+  if (root) return root;
+  return live().map(f => f.path).filter(p => /\.typ$/i.test(p))
+    .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))[0] || null;
+}
+function projectLabel() {
+  const m = mainPath();
+  if (!m) return '';
+  const d = dirOf(m);
+  return d ? baseOf(d) : '';
+}
+function updateTitle() {
+  $('curProj').textContent = projectLabel();
+  $('curProj').hidden = !projectLabel();
+  $('curFile').textContent = current ? baseOf(current) : 'Keine Datei';
+}
+
 function openDrawer(open) {
   $('drawer').classList.toggle('open', open);
   $('scrim').classList.toggle('show', open);
@@ -876,88 +935,240 @@ $('filesBtn').onclick = () => openDrawer(true);
 $('drawerClose').onclick = () => openDrawer(false);
 $('scrim').onclick = () => openDrawer(false);
 
+function buildTree() {
+  const root = { name: '', path: '', dirs: new Map(), files: [] };
+  const dirNode = (path) => {
+    let node = root;
+    if (!path) return node;
+    let acc = '';
+    for (const part of path.split('/')) {
+      acc = acc ? acc + '/' + part : part;
+      if (!node.dirs.has(part)) node.dirs.set(part, { name: part, path: acc, dirs: new Map(), files: [] });
+      node = node.dirs.get(part);
+    }
+    return node;
+  };
+  for (const f of live()) dirNode(dirOf(f.path)).files.push(f);
+  for (const d of settings.emptyDirs || []) dirNode(d);
+  return root;
+}
+function isExpanded(path) {
+  if (!path) return true;
+  if (current && (current + '/').startsWith(path + '/')) return settings.expanded?.[path] !== false;
+  return !!settings.expanded?.[path];
+}
+const FOLDER_ICON = '<svg viewBox="0 0 24 24"><path d="M3.5 7h6l2 2h9v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>';
 function renderFileList() {
   const ul = $('fileList');
   ul.innerHTML = '';
+  const tree = buildTree();
   const main = mainPath();
-  const list = live().sort((a, b) => a.path.localeCompare(b.path, 'de'));
-  if (!list.length) {
-    const li = document.createElement('li'); li.style.padding = '14px'; li.style.color = 'var(--muted)';
-    li.textContent = 'Noch keine Dateien. Lege eine neue an oder synchronisiere mit GitHub.';
+  if (!tree.files.length && !tree.dirs.size) {
+    const li = document.createElement('li'); li.className = 'empty-hint';
+    li.textContent = 'Noch nichts da. Lege einen Ordner für dein erstes Projekt an oder synchronisiere mit GitHub.';
     ul.appendChild(li); return;
   }
-  for (const f of list) {
-    const li = document.createElement('li');
-    if (f.path === current) li.className = 'current';
-    const b = document.createElement('button'); b.className = 'open';
-    const slash = f.path.lastIndexOf('/');
-    b.innerHTML = `<span class="name">${slash >= 0 ? `<span class="dir">${escapeHtml(f.path.slice(0, slash + 1))}</span>` : ''}${escapeHtml(f.path.slice(slash + 1))}</span>` +
-      (f.path === main ? '<span class="tag">Hauptdatei</span>' : '') +
-      (!f.sample && (f.dirty || f.baseSha == null) && settings.repo ? '<span class="tag changed">nicht hochgeladen</span>' : '');
-    b.onclick = () => { openFile(f.path); openDrawer(false); };
-    const more = document.createElement('button'); more.className = 'more'; more.textContent = '⋯';
-    more.setAttribute('aria-label', 'Aktionen für ' + f.path);
-    more.onclick = () => fileActions(f.path);
-    li.append(b, more); ul.appendChild(li);
-  }
+  const collator = new Intl.Collator('de', { numeric: true });
+  const walk = (node, depth) => {
+    for (const d of [...node.dirs.values()].sort((a, b) => collator.compare(a.name, b.name))) {
+      const open = isExpanded(d.path);
+      const li = document.createElement('li');
+      li.className = 'folder' + (main && dirOf(main) === d.path ? ' active' : '');
+      li.style.setProperty('--depth', depth);
+      const b = document.createElement('button'); b.className = 'open';
+      b.setAttribute('aria-expanded', String(open));
+      b.innerHTML = `<span class="chev">${open ? '▾' : '▸'}</span>${FOLDER_ICON}<span class="name">${escapeHtml(d.name)}</span>` +
+        (folderMain(d.path) ? '<span class="tag">Projekt</span>' : '');
+      b.onclick = () => {
+        settings.expanded = { ...(settings.expanded || {}), [d.path]: !open };
+        saveSettings(); renderFileList();
+      };
+      const more = document.createElement('button'); more.className = 'more'; more.textContent = '⋯';
+      more.setAttribute('aria-label', 'Aktionen für Ordner ' + d.path);
+      more.onclick = () => folderActions(d.path);
+      li.append(b, more); ul.appendChild(li);
+      if (open) walk(d, depth + 1);
+    }
+    for (const f of node.files.sort((a, b) => collator.compare(baseOf(a.path), baseOf(b.path)))) {
+      const li = document.createElement('li');
+      li.className = 'file' + (f.path === current ? ' current' : '');
+      li.style.setProperty('--depth', depth);
+      const b = document.createElement('button'); b.className = 'open';
+      const isMain = folderMain(dirOf(f.path)) === f.path;
+      b.innerHTML = `<span class="chev"></span><span class="name">${escapeHtml(baseOf(f.path))}</span>` +
+        (isMain ? `<span class="tag${f.path === main ? ' on' : ''}">Hauptdatei</span>` : '') +
+        (!f.sample && (f.dirty || f.baseSha == null) && settings.repo ? '<span class="tag changed">nicht hochgeladen</span>' : '');
+      b.onclick = () => { openFile(f.path); openDrawer(false); };
+      const more = document.createElement('button'); more.className = 'more'; more.textContent = '⋯';
+      more.setAttribute('aria-label', 'Aktionen für ' + f.path);
+      more.onclick = () => fileActions(f.path);
+      li.append(b, more); ul.appendChild(li);
+    }
+  };
+  walk(tree, 0);
+}
+
+// A small action sheet instead of browser prompts.
+function actionSheet(title, actions) {
+  return new Promise((resolve) => {
+    const dlg = $('actionDlg');
+    $('actionTitle').textContent = title;
+    const box = $('actionList'); box.innerHTML = '';
+    for (const a of actions) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'sheet-btn' + (a.danger ? ' danger' : '');
+      b.textContent = a.label;
+      b.onclick = () => { dlg.returnValue = a.key; dlg.close(); };
+      box.appendChild(b);
+    }
+    dlg.onclose = () => resolve(dlg.returnValue || null);
+    dlg.returnValue = '';
+    dlg.showModal();
+  });
 }
 function validName(name) {
   name = (name || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/');
   if (!name || name.split('/').some(s => s === '.' || s === '..' || !s)) return null;
   return name;
 }
-$('newFileBtn').onclick = async () => {
-  const name = validName(prompt('Name der neuen Datei (z. B. kapitel/einleitung.typ):', '.typ'));
+const join = (dir, name) => dir ? dir + '/' + name : name;
+function expandTo(dir) {
+  settings.expanded = settings.expanded || {};
+  let d = dir;
+  while (d) { settings.expanded[d] = true; d = dirOf(d); }
+  saveSettings();
+}
+
+async function createFile(path, text) {
+  if (isLive(path)) { toast('Diese Datei gibt es schon.', true); return false; }
+  const old = files.get(path);
+  const f = { path, text: text ?? '', eol: '\n', baseSha: old?.baseSha ?? null, dirty: true, version: nextVersion() };
+  if (!isText(path)) { f.bytes = new Uint8Array(); delete f.text; }
+  files.set(path, f); await saveFile(f);
+  settings.emptyDirs = (settings.emptyDirs || []).filter(d => !(path + '/').startsWith(d + '/'));
+  return true;
+}
+async function newFileIn(dir) {
+  const name = validName(prompt(`Neue Datei in ${dir || 'Hauptordner'}:`, '.typ'));
   if (!name) return;
-  if (files.has(name) && !files.get(name).deleted) { toast('Diese Datei gibt es schon.', true); return; }
-  const old = files.get(name);
-  const f = { path: name, text: '', eol: '\n', baseSha: old?.baseSha ?? null, dirty: true, version: nextVersion() };
-  if (!isText(name)) { f.bytes = new Uint8Array(); delete f.text; }
-  files.set(name, f); await saveFile(f);
-  openFile(name); openDrawer(false); updateBadge(); compileSoon();
-};
-$('uploadBtn').onclick = () => $('uploadInput').click();
+  const path = join(dir, name);
+  if (!await createFile(path, '')) return;
+  expandTo(dirOf(path));
+  openFile(path); openDrawer(false); updateBadge(); compileSoon();
+}
+async function newFolderIn(dir) {
+  const name = validName(prompt(`Neuer Ordner in ${dir || 'Hauptordner'}:\n(Er bekommt gleich eine eigene main.typ und wird damit ein Projekt.)`, ''));
+  if (!name) return;
+  const folder = join(dir, name);
+  const mainFile = folder + '/main.typ';
+  const title = baseOf(folder);
+  if (!await createFile(mainFile, `#set page(paper: "a4", margin: 2.2cm)\n#set text(lang: "de", size: 11pt)\n\n= ${title}\n\n`)) return;
+  expandTo(folder);
+  openFile(mainFile); openDrawer(false); updateBadge(); compileNow();
+  toast(`Projekt „${title}“ angelegt`);
+}
+async function uploadIn(dir) {
+  uploadTarget = dir;
+  $('uploadInput').click();
+}
+let uploadTarget = '';
+$('newFolderBtn').onclick = () => newFolderIn('');
+$('newFileBtn').onclick = () => newFileIn('');
+$('uploadBtn').onclick = () => uploadIn(current ? dirOf(current) : '');
 $('uploadInput').onchange = async (ev) => {
   const chosen = [...ev.target.files];
   ev.target.value = '';
   if (!chosen.length) return;
-  const folder = current && current.includes('/') ? current.slice(0, current.lastIndexOf('/') + 1) : '';
   for (const file of chosen) {
-    const suggested = folder + file.name.replace(/\s+/g, '-');
-    const name = chosen.length === 1 ? validName(prompt('Speichern als:', suggested)) : suggested;
-    if (!name) continue;
+    const name = join(uploadTarget, file.name.replace(/\s+/g, '-'));
     const bytes = new Uint8Array(await file.arrayBuffer());
     const old = files.get(name);
     const f = makeRecord(name, bytes, old?.baseSha ?? null);
     f.dirty = true;
     files.set(name, f); await saveFile(f);
   }
+  expandTo(uploadTarget);
   renderFileList(); updateBadge(); compileSoon();
-  toast(chosen.length === 1 ? 'Datei hinzugefügt' : `${chosen.length} Dateien hinzugefügt`);
+  toast(chosen.length === 1 ? `${chosen[0].name} hinzugefügt` : `${chosen.length} Dateien hinzugefügt`);
 };
+
+async function movePath(from, to) {
+  const f = files.get(from);
+  const target = files.get(to);
+  const copy = { ...f, path: to, baseSha: target?.baseSha ?? null, dirty: true, deleted: false, version: nextVersion() };
+  files.set(to, copy); await saveFile(copy);
+  await deleteLocal(from);
+  if (current === from) current = to;
+}
 async function fileActions(path) {
-  const f = files.get(path);
   const isTyp = /\.typ$/i.test(path);
-  const choice = prompt(
-    `${path}\n\nTippe eine Zahl:\n` + (isTyp ? '1  Als Hauptdatei verwenden\n' : '') + '2  Umbenennen\n3  Löschen', '');
-  if (choice === '1' && isTyp) {
-    settings.main = path; await saveSettings(); renderFileList(); compileNow();
-  } else if (choice === '2') {
-    const name = validName(prompt('Neuer Name:', path));
+  const dir = dirOf(path);
+  const isMain = folderMain(dir) === path;
+  const actions = [];
+  if (isTyp && !isMain) actions.push({ key: 'main', label: `Als Hauptdatei von „${dir ? baseOf(dir) : 'Hauptordner'}“ verwenden` });
+  actions.push({ key: 'rename', label: 'Umbenennen oder verschieben' }, { key: 'delete', label: 'Löschen', danger: true });
+  const choice = await actionSheet(path, actions);
+  if (choice === 'main') {
+    settings.mains = { ...(settings.mains || {}), [dir]: path };
+    await saveSettings(); renderFileList(); updateTitle(); compileNow();
+  } else if (choice === 'rename') {
+    const name = validName(prompt('Neuer Name. Mit / davor verschiebst du die Datei in einen Ordner:', path));
     if (!name || name === path) return;
-    if (files.has(name) && !files.get(name).deleted) { toast('Diese Datei gibt es schon.', true); return; }
-    const target = files.get(name);
-    const copy = { ...f, path: name, baseSha: target?.baseSha ?? null, dirty: true, deleted: false, version: nextVersion() };
-    files.set(name, copy); await saveFile(copy);
-    await deleteLocal(path);
-    if (settings.main === path) { settings.main = name; saveSettings(); }
-    if (current === path) openFile(name);
-    renderFileList(); updateBadge(); compileSoon();
-  } else if (choice === '3') {
+    if (isLive(name)) { toast('Diese Datei gibt es schon.', true); return; }
+    await movePath(path, name);
+    if (settings.mains?.[dir] === path) { delete settings.mains[dir]; if (dirOf(name) === dir) settings.mains[dir] = name; }
+    expandTo(dirOf(name)); await saveSettings();
+    if (current === name) openFile(name);
+    renderFileList(); updateBadge(); updateTitle(); compileSoon();
+  } else if (choice === 'delete') {
+    const f = files.get(path);
     if (!confirm(`${path} löschen?` + (f.baseSha ? '\nBeim nächsten Synchronisieren wird sie auch auf GitHub gelöscht.' : ''))) return;
     await deleteLocal(path);
-    if (current === path) { const next = mainPath(); if (next) openFile(next); else { current = null; editor.value = ''; refreshHighlight(); } }
+    if (current === path) closeCurrent();
     renderFileList(); updateBadge(); compileSoon();
+  }
+}
+function closeCurrent() {
+  const next = mainPath();
+  if (next) openFile(next);
+  else { current = null; editor.value = ''; refreshHighlight(); updateTitle(); }
+}
+const inFolder = (dir) => live().filter(f => f.path.startsWith(dir + '/'));
+async function folderActions(dir) {
+  const name = baseOf(dir);
+  const choice = await actionSheet(dir, [
+    { key: 'file', label: 'Neue Datei hier' },
+    { key: 'folder', label: 'Neuer Unterordner (Projekt)' },
+    { key: 'upload', label: 'Bild oder Datei hier hinzufügen' },
+    { key: 'rename', label: 'Ordner umbenennen' },
+    { key: 'delete', label: 'Ordner löschen', danger: true },
+  ]);
+  if (choice === 'file') newFileIn(dir);
+  else if (choice === 'folder') newFolderIn(dir);
+  else if (choice === 'upload') uploadIn(dir);
+  else if (choice === 'rename') {
+    const nn = validName(prompt('Neuer Ordnername:', name));
+    if (!nn || nn === name) return;
+    const to = join(dirOf(dir), nn);
+    if (inFolder(to).length) { toast('Diesen Ordner gibt es schon.', true); return; }
+    for (const f of inFolder(dir)) await movePath(f.path, to + f.path.slice(dir.length));
+    const remap = (obj) => Object.fromEntries(Object.entries(obj || {}).map(([k, v]) =>
+      [(k === dir || k.startsWith(dir + '/')) ? to + k.slice(dir.length) : k,
+       typeof v === 'string' && v.startsWith(dir + '/') ? to + v.slice(dir.length) : v]));
+    settings.mains = remap(settings.mains);
+    settings.expanded = remap(settings.expanded);
+    settings.emptyDirs = (settings.emptyDirs || []).map(d => (d === dir || d.startsWith(dir + '/')) ? to + d.slice(dir.length) : d);
+    await saveSettings();
+    if (current) openFile(current);
+    renderFileList(); updateBadge(); updateTitle(); compileSoon();
+  } else if (choice === 'delete') {
+    const list = inFolder(dir);
+    if (!confirm(`Ordner „${dir}“ mit ${list.length} Datei(en) löschen?` + (settings.repo ? '\nBeim nächsten Synchronisieren wird er auch auf GitHub gelöscht.' : ''))) return;
+    for (const f of list) await deleteLocal(f.path);
+    settings.emptyDirs = (settings.emptyDirs || []).filter(d => !(d === dir || d.startsWith(dir + '/')));
+    await saveSettings();
+    if (current && !isLive(current)) closeCurrent();
+    renderFileList(); updateBadge(); updateTitle(); compileSoon();
   }
 }
 async function deleteLocal(path) {
@@ -1224,7 +1435,6 @@ async function openSettings() {
   $('setHl').checked = !!settings.highlight;
   $('setAutoSync').checked = !!settings.autoSync;
   $('versionInfo').textContent = 'Version ' + APP_VERSION;
-  fillMainSelect();
   try {
     const est = await navigator.storage?.estimate?.();
     const persisted = await navigator.storage?.persisted?.();
@@ -1264,7 +1474,6 @@ $('settingsDlg').addEventListener('close', async () => {
   }
   Object.assign(settings, { owner: p.owner, repo: p.repo, branch, dir, token: $('setToken').value.trim() });
   if (changedRepo) settings.lastCommit = null;
-  const m = $('setMain').value; if (m) settings.main = m;
   settings.fontSize = +$('setSize').value;
   settings.highlight = $('setHl').checked;
   settings.autoSync = $('setAutoSync').checked;
@@ -1388,6 +1597,7 @@ $ integral_0^1 x^2 dif x = 1/3 $
   try {
     const saved = DB.db && await DB.get('meta', 'settings');
     if (saved) settings = { ...settings, ...saved };
+    if (!settings.mains) settings.mains = settings.main && settings.main !== 'main.typ' ? { [settings.main.includes('/') ? settings.main.slice(0, settings.main.lastIndexOf('/')) : '']: settings.main } : {};
     for (const f of (DB.db ? await DB.all('files') : [])) files.set(f.path, f);
   } catch (e) { console.error(e); }
   if (!files.size) {
