@@ -440,7 +440,7 @@ dialog::backdrop { background: rgba(8,14,16,.55); }
 
 <script>
 'use strict';
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const $ = (id) => document.getElementById(id);
 const TEXT_EXT = /\.(typ|bib|ya?ml|toml|json|csv|tsv|txt|md|xml|svg|tex|html?|css|js|lua|py)$/i;
 const isText = (p) => TEXT_EXT.test(p);
@@ -888,14 +888,17 @@ const dirOf = (p) => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
 const baseOf = (p) => p.slice(p.lastIndexOf('/') + 1);
 const isLive = (p) => { const f = files.get(p); return !!f && !f.deleted; };
 function folderMain(dir) {
+  if (settings.single?.[dir]) return null;
   const chosen = settings.mains?.[dir];
   if (chosen && isLive(chosen) && dirOf(chosen) === dir) return chosen;
   const def = dir ? dir + '/main.typ' : 'main.typ';
   return isLive(def) ? def : null;
 }
 function mainFor(path) {
+  if (settings.standalone?.[path]) return null;
   let d = dirOf(path);
   for (;;) {
+    if (settings.single?.[d]) return null;       // notes folder: every file stands alone
     const m = folderMain(d);
     if (m) return m;
     if (!d) break;
@@ -978,7 +981,7 @@ function renderFileList() {
       const b = document.createElement('button'); b.className = 'open';
       b.setAttribute('aria-expanded', String(open));
       b.innerHTML = `<span class="chev">${open ? '▾' : '▸'}</span>${FOLDER_ICON}<span class="name">${escapeHtml(d.name)}</span>` +
-        (folderMain(d.path) ? '<span class="tag">Projekt</span>' : '');
+        (folderMain(d.path) ? '<span class="tag">Projekt</span>' : settings.single?.[d.path] ? '<span class="tag">einzeln</span>' : '');
       b.onclick = () => {
         settings.expanded = { ...(settings.expanded || {}), [d.path]: !open };
         saveSettings(); renderFileList();
@@ -996,7 +999,8 @@ function renderFileList() {
       const b = document.createElement('button'); b.className = 'open';
       const isMain = folderMain(dirOf(f.path)) === f.path;
       b.innerHTML = `<span class="chev"></span><span class="name">${escapeHtml(baseOf(f.path))}</span>` +
-        (isMain ? `<span class="tag${f.path === main ? ' on' : ''}">Hauptdatei</span>` : '') +
+        (isMain ? `<span class="tag${f.path === main ? ' on' : ''}">Hauptdatei</span>` :
+          (/\.typ$/i.test(f.path) && !mainFor(f.path)) ? `<span class="tag${f.path === main ? ' on' : ''}">einzeln</span>` : '') +
         (!f.sample && (f.dirty || f.baseSha == null) && settings.repo ? '<span class="tag changed">nicht hochgeladen</span>' : '');
       b.onclick = () => { openFile(f.path); openDrawer(false); };
       const more = document.createElement('button'); more.className = 'more'; more.textContent = '⋯';
@@ -1057,9 +1061,22 @@ async function newFileIn(dir) {
   openFile(path); openDrawer(false); updateBadge(); compileSoon();
 }
 async function newFolderIn(dir) {
-  const name = validName(prompt(`Neuer Ordner in ${dir || 'Hauptordner'}:\n(Er bekommt gleich eine eigene main.typ und wird damit ein Projekt.)`, ''));
+  const name = validName(prompt(`Neuer Ordner in ${dir || 'Hauptordner'}:`, ''));
   if (!name) return;
   const folder = join(dir, name);
+  const kind = await actionSheet(`Was soll „${baseOf(folder)}“ werden?`, [
+    { key: 'project', label: 'Ein Projekt mit Hauptdatei (main.typ)' },
+    { key: 'notes', label: 'Notizen: jede .typ-Datei ist ein eigenes Dokument' },
+    { key: 'plain', label: 'Nur ein Ordner (gehört zum Projekt darüber)' },
+  ]);
+  if (!kind) return;
+  if (kind !== 'project') {
+    settings.emptyDirs = [...new Set([...(settings.emptyDirs || []), folder])];
+    if (kind === 'notes') settings.single = { ...(settings.single || {}), [folder]: true };
+    expandTo(folder); await saveSettings(); renderFileList();
+    toast(kind === 'notes' ? `Notizen-Ordner „${baseOf(folder)}“ angelegt. Lege jetzt Dateien darin an.` : `Ordner „${baseOf(folder)}“ angelegt`, false, 4500);
+    return;
+  }
   const mainFile = folder + '/main.typ';
   const title = baseOf(folder);
   if (!await createFile(mainFile, `#set page(paper: "a4", margin: 2.2cm)\n#set text(lang: "de", size: 11pt)\n\n= ${title}\n\n`)) return;
@@ -1105,10 +1122,26 @@ async function fileActions(path) {
   const dir = dirOf(path);
   const isMain = folderMain(dir) === path;
   const actions = [];
-  if (isTyp && !isMain) actions.push({ key: 'main', label: `Als Hauptdatei von „${dir ? baseOf(dir) : 'Hauptordner'}“ verwenden` });
+  const folderName = dir ? baseOf(dir) : 'Hauptordner';
+  if (isTyp) {
+    const standalone = !!settings.standalone?.[path];
+    const owner = mainFor(path);
+    if (standalone) actions.push({ key: 'join', label: 'Wieder mit dem Projekt kompilieren' });
+    else if (owner && owner !== path) actions.push({ key: 'alone', label: 'Einzeln kompilieren (eigenes Dokument)' });
+    if (!isMain && !settings.single?.[dir]) actions.push({ key: 'main', label: `Als Hauptdatei von „${folderName}“ verwenden` });
+    if (isMain && !settings.single?.[dir] && settings.mains?.[dir] === path) actions.push({ key: 'unmain', label: 'Nicht mehr Hauptdatei' });
+  }
   actions.push({ key: 'rename', label: 'Umbenennen oder verschieben' }, { key: 'delete', label: 'Löschen', danger: true });
   const choice = await actionSheet(path, actions);
-  if (choice === 'main') {
+  if (choice === 'alone' || choice === 'join') {
+    settings.standalone = { ...(settings.standalone || {}) };
+    if (choice === 'alone') settings.standalone[path] = true; else delete settings.standalone[path];
+    await saveSettings(); renderFileList(); updateTitle(); compileNow();
+  } else if (choice === 'unmain') {
+    settings.mains = { ...(settings.mains || {}) }; delete settings.mains[dir];
+    await saveSettings(); renderFileList(); updateTitle(); compileNow();
+  } else if (choice === 'main') {
+    if (settings.standalone?.[path]) delete settings.standalone[path];
     settings.mains = { ...(settings.mains || {}), [dir]: path };
     await saveSettings(); renderFileList(); updateTitle(); compileNow();
   } else if (choice === 'rename') {
@@ -1117,6 +1150,7 @@ async function fileActions(path) {
     if (isLive(name)) { toast('Diese Datei gibt es schon.', true); return; }
     await movePath(path, name);
     if (settings.mains?.[dir] === path) { delete settings.mains[dir]; if (dirOf(name) === dir) settings.mains[dir] = name; }
+    if (settings.standalone?.[path]) { delete settings.standalone[path]; settings.standalone[name] = true; }
     expandTo(dirOf(name)); await saveSettings();
     if (current === name) openFile(name);
     renderFileList(); updateBadge(); updateTitle(); compileSoon();
@@ -1136,14 +1170,22 @@ function closeCurrent() {
 const inFolder = (dir) => live().filter(f => f.path.startsWith(dir + '/'));
 async function folderActions(dir) {
   const name = baseOf(dir);
+  const single = !!settings.single?.[dir];
   const choice = await actionSheet(dir, [
     { key: 'file', label: 'Neue Datei hier' },
+    single ? { key: 'multi', label: 'Hauptdatei verwenden (ein gemeinsames Dokument)' }
+           : { key: 'single', label: 'Jede Datei einzeln kompilieren (Notizen)' },
     { key: 'folder', label: 'Neuer Unterordner (Projekt)' },
     { key: 'upload', label: 'Bild oder Datei hier hinzufügen' },
     { key: 'rename', label: 'Ordner umbenennen' },
     { key: 'delete', label: 'Ordner löschen', danger: true },
   ]);
-  if (choice === 'file') newFileIn(dir);
+  if (choice === 'single' || choice === 'multi') {
+    settings.single = { ...(settings.single || {}) };
+    if (choice === 'single') settings.single[dir] = true; else delete settings.single[dir];
+    await saveSettings(); renderFileList(); updateTitle(); compileNow();
+    if (choice === 'multi' && !folderMain(dir)) toast('Lege eine main.typ an oder wähle bei einer Datei „Als Hauptdatei verwenden“.', false, 5000);
+  } else if (choice === 'file') newFileIn(dir);
   else if (choice === 'folder') newFolderIn(dir);
   else if (choice === 'upload') uploadIn(dir);
   else if (choice === 'rename') {
@@ -1157,6 +1199,8 @@ async function folderActions(dir) {
        typeof v === 'string' && v.startsWith(dir + '/') ? to + v.slice(dir.length) : v]));
     settings.mains = remap(settings.mains);
     settings.expanded = remap(settings.expanded);
+    settings.single = remap(settings.single);
+    settings.standalone = remap(settings.standalone);
     settings.emptyDirs = (settings.emptyDirs || []).map(d => (d === dir || d.startsWith(dir + '/')) ? to + d.slice(dir.length) : d);
     await saveSettings();
     if (current) openFile(current);
